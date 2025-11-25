@@ -74,7 +74,7 @@ Issues you must identify and fix:
 
 Issues include:
 
-- Wrong exposed port  
+- Dockerfile not building
 - Inefficient image  
 - Minor build problems  
 
@@ -91,7 +91,7 @@ Located in: `k8s/deployment.yaml` and `k8s/service.yaml`
 
 The Kubernetes deployment has multiple issues:
 
-- Wrong container port  
+- Deployed application is not running
 - Readiness probe fails  
 - Service not routing properly  
 
@@ -99,7 +99,8 @@ You must:
 
 - Fix all YAML issues  
 - Deploy locally (`kind` or `minikube`)  
-- Verify service is reachable  
+- Verify service is reachable
+- Give an explanation of Readiness and Liveness uses 
 
 **Deliverables:**
 
@@ -162,7 +163,8 @@ Do **any** one improvement (or more):
 - Add autoscaling (HPA)  
 - Add Makefile for automation  
 - Add GitHub CI for lint/build  
-- Add Prometheus metrics  
+- Add Prometheus metrics 
+- Deploy an Ingress Controller with proper Load Balancer Configuration 
 
 Include your reasoning.
 

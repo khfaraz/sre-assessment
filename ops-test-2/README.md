@@ -86,7 +86,7 @@ Deliverables:
 
 Current deployment issues:
 
-- Incorrect ports  
+- Proper configuration of ports  
 - Wrong readinessProbe  
 - Poor resource limits (too low)  
 - Wrong imagePullPolicy  
@@ -177,7 +177,7 @@ Choose any one (or more):
 - Add livenessProbe with thresholds  
 - Implement rate-limiting  
 - Add GitHub CI workflow  
-- Add end-to-end tests  
+- Add end-to-end tests 
 
 Document your improvement.
 
