@@ -6,13 +6,13 @@ app = Flask(__name__)
 
 @app.route("/")
 def home():
-    time.sleep(random.randint(3,8))
+    # Removed artificial delay that caused high latency.
     return "Hello from SRE Test!"
 
 @app.route("/healthz")
 def health():
-    return jsonify({"status": "ok"}), 500
+    # Health endpoint should return HTTP 200 when OK.
+    return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=8080)
-
