@@ -83,17 +83,6 @@ curl -sv http://127.0.0.1:8080/
 curl -sv http://127.0.0.1:8080/healthz
 ```
 
-## Root cause and recommendation
-
-- Root cause: artificial blocking sleep and incorrect hard-coded HTTP status code. The blocking sleep increases response latency and can cause readiness/liveness probes or clients to time out. The incorrect status code caused orchestration systems to think the service was unhealthy.
-- Recommendation: avoid artificial sleeps in request handlers. If simulating latency for testing, do it in separate test code or behind a debug flag. Ensure health endpoints always return an accurate status code (200 for OK). Add unit tests for the health endpoint and automated checks in CI.
-
-## Commands I ran while fixing
-
-- `sed -n '1,160p' app/main.py` (inspect file)
-- Edited `app/main.py` to remove `time.sleep(...)` and change health return code.
-- `python3 app/main.py` and used `curl` to verify responses.
-
 ## Screenshot
 
 Below is the screenshot showing the fix applied to the application:
