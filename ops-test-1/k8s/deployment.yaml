@@ -14,13 +14,24 @@ spec:
     spec:
       containers:
       - name: sre-app
-        image: sre-candidate:latest
+        image: sre-assessment:latest
         ports:
-        - containerPort: 80
+        - containerPort: 8080
         readinessProbe:
           httpGet:
             path: /healthz
-            port: 80
-          initialDelaySeconds: 2
-          periodSeconds: 5
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 2
+          failureThreshold: 3
 

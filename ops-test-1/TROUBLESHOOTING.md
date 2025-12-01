@@ -141,3 +141,155 @@ Expected output:
   - Consider multi-stage builds if build-time dependencies are later needed.
   - Use `.dockerignore` to exclude unnecessary files during copy operations.
 
+## 3. Kubernetes Part
+
+Fixed multiple issues in Kubernetes manifests:
+
+- Deployed application was not running due to port and image mismatches.
+- Readiness probe was checking wrong port (80 instead of 8080).
+- Service routing and probe configuration were incorrect.
+
+### What was broken
+
+**deployment.yaml:**
+- `containerPort: 80` did not match the application listening on 8080.
+- `readinessProbe.httpGet.port: 80` was wrong; app responds on 8080.
+- No `livenessProbe` defined for restart-on-failure scenarios.
+- `image: sre-candidate:latest` was incorrect; should be `sre-assessment:latest`.
+- `initialDelaySeconds: 2` was too aggressive; app needs more time to start.
+
+**service.yaml:**
+- Already had correct port mapping (80 → 8080), but deployment didn't match.
+
+### What I changed
+
+**deployment.yaml:**
+- Changed `containerPort: 80` to `containerPort: 8080`.
+- Updated `readinessProbe.httpGet.port` to `8080`.
+- Added proper probe thresholds: `initialDelaySeconds: 5`, `periodSeconds: 10`, `timeoutSeconds: 2`, `failureThreshold: 3`.
+- Added `livenessProbe` with similar config but later start (`initialDelaySeconds: 10`).
+- Corrected image to `sre-assessment:latest`.
+
+**service.yaml:**
+- Added `name: http` to the port for clarity (optional but best practice).
+
+### Fixed Kubernetes Files
+
+**deployment.yaml:**
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sre-app
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: sre
+  template:
+    metadata:
+      labels:
+        app: sre
+    spec:
+      containers:
+      - name: sre-app
+        image: sre-assessment:latest
+        ports:
+        - containerPort: 8080
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+          timeoutSeconds: 2
+          successThreshold: 1
+          failureThreshold: 3
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 10
+          periodSeconds: 15
+          timeoutSeconds: 2
+          failureThreshold: 3
+```
+
+**service.yaml:**
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: sre-service
+spec:
+  type: ClusterIP
+  selector:
+    app: sre
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8080
+    name: http
+```
+
+### Readiness Probe vs Liveness Probe
+
+**Readiness Probe:**
+- **Purpose:** Determines if a pod is ready to receive traffic.
+- **Action on failure:** Kubernetes removes the pod from the Service load balancer; traffic stops but pod is NOT restarted.
+- **Use case:** Validates that the app is initialized, dependencies are ready, and it can handle requests.
+- **Example:** Checking `/healthz` endpoint after app startup; fails if startup checks haven't completed.
+
+**Liveness Probe:**
+- **Purpose:** Determines if a pod is still alive or if it should be restarted.
+- **Action on failure:** Kubernetes terminates and restarts the pod (respects `restartPolicy`).
+- **Use case:** Detects deadlocks, infinite loops, or crashes that don't exit the process.
+- **Example:** Checking `/healthz` periodically; if the app becomes unresponsive, the pod is restarted.
+
+### deploy and verify locally using kind
+
+#### Prerequisites
+
+Ensure you have `kind` installed and running.
+
+####  Using kind
+
+```bash
+# Create a local Kubernetes cluster
+kind create cluster --name sre-test
+
+# Build and load the Docker image into the cluster
+docker build -t sre-assessment:latest .
+kind load docker-image sre-assessment:latest --name sre-test
+
+# Apply the Kubernetes manifests
+kubectl apply -f k8s/deployment.yaml
+kubectl apply -f k8s/service.yaml
+
+# Watch deployment status
+kubectl get pods -w
+
+# Forward port to test locally
+kubectl port-forward svc/sre-service 8080:80 &
+
+# Test the endpoints
+curl -sv http://127.0.0.1:8080/
+curl -sv http://127.0.0.1:8080/healthz
+
+# Check logs
+kubectl logs -f deployment/sre-app
+
+# Cleanup
+kind delete cluster --name sre-test
+```
+
+### Root cause and recommendations
+
+- Root cause: Port mismatch (deployment exposed 80, app listened on 8080), missing liveness probe, wrong image name, insufficient probe timings.
+- Recommendations:
+  - Always ensure container ports match application listening ports.
+  - Define both readiness and liveness probes for production workloads.
+  - Use descriptive image tags (avoid `latest` in production; use semantic versioning).
+  - Set appropriate `initialDelaySeconds` based on app startup time.
+  - Monitor probe failures with `kubectl describe pod` and check logs.
+
