@@ -293,3 +293,91 @@ kind delete cluster --name sre-test
   - Set appropriate `initialDelaySeconds` based on app startup time.
   - Monitor probe failures with `kubectl describe pod` and check logs.
 
+## 4. Debug Logs Analysis (logs.txt)
+
+### Log Entries Observed
+
+```
+2025-02-11 11:20:11 [ERROR] Timeout waiting for /healthz
+2025-02-11 11:20:12 [ERROR] Probe failed for container: sre-app
+2025-02-11 11:20:17 [ERROR] Readiness probe failed (HTTP 500)
+2025-02-11 11:20:18 [WARNING] High response latency detected: 7000ms
+```
+
+### Analysis
+
+#### What caused the readiness probe failures?
+
+**Primary cause: Port mismatch**
+- The readiness probe in `deployment.yaml` was configured to check port `80`, but the application (Flask/gunicorn) listens on port `8080`.
+- Kubernetes tried to connect to `http://localhost:80/healthz`, which failed because nothing was listening there.
+- This resulted in "Timeout waiting for /healthz" and "Probe failed for container" errors.
+
+**Secondary cause: Incorrect HTTP status code**
+- Even if the port had been correct, the original application code returned HTTP 500 from `/healthz` (see Application Part fix).
+- Kubernetes readiness probes expect HTTP 2xx or 3xx status codes; 500 is treated as failure.
+- The log shows "Readiness probe failed (HTTP 500)" confirming this.
+
+**Tertiary cause: Insufficient `initialDelaySeconds`**
+- The original probe had `initialDelaySeconds: 2`, which is too short for a production Flask app with gunicorn.
+- The container might not have fully started before the probe began, causing early failures.
+
+#### Why is the service slow?
+
+**High latency (7000ms = 7 seconds)** was caused by the artificial delay in the application:
+- The original `/` endpoint contained `time.sleep(random.randint(3,8))`, which added 3–8 seconds of delay per request.
+- This artificial blocking made the service appear slow or broken.
+- Combined with readiness probe failures, the pod would not become `Ready`, further delaying traffic routing.
+
+#### What is the probable root cause?
+
+**Multi-layered root cause:**
+
+1. **Application Code Issue:** The `time.sleep()` in `/` and HTTP 500 in `/healthz` were intentional bugs for the assessment.
+2. **Kubernetes Configuration Issue:** The deployment exposed port 80 while the app listened on 8080; probes checked the wrong port.
+3. **Orchestration Mismatch:** The readiness probe failed, so Kubernetes never marked the pod as `Ready`, preventing the Service from routing traffic to healthy pods.
+4. **Cascading Effect:** Slow responses + probe failures = pods not becoming ready = service appears down or broken.
+
+#### What permanent fix would resolve it?
+
+**Application-level fixes (completed):**
+- ✅ Removed `time.sleep(random.randint(3,8))` from the `/` endpoint → responses now instant.
+- ✅ Changed `/healthz` to return HTTP 200 instead of 500 → health checks now pass.
+
+**Infrastructure-level fixes (completed):**
+- ✅ Updated `deployment.yaml` to expose `containerPort: 8080` (matching the app).
+- ✅ Updated readiness probe to check `port: 8080` (matching the container).
+- ✅ Added `livenessProbe` with proper restart logic.
+- ✅ Increased `initialDelaySeconds: 5` to allow app startup time.
+
+**Service-level validation:**
+- ✅ Confirmed `service.yaml` routes port 80 → targetPort 8080 correctly.
+
+### Summary of Changes and Impact
+
+| Issue | Root Cause | Fix | Impact |
+|-------|-----------|-----|--------|
+| Timeout on `/healthz` | Probe on port 80, app on 8080 | Changed probe to port 8080 | Probe now reaches app |
+| HTTP 500 on health checks | App returned 500 status | Changed to return HTTP 200 | Probe now succeeds |
+| 7 second response latency | Artificial `time.sleep()` | Removed sleep | Response instant |
+| Pod not ready | Port and status mismatches | Fixed ports, probes, status | Pod becomes Ready |
+| Service unavailable | No healthy pods available | All fixes above | Service routes traffic |
+
+### Verification Post-Fix
+
+After applying all fixes, the logs should show:
+- ✅ Readiness probe succeeds (HTTP 200)
+- ✅ Pod transitions to `Ready` state
+- ✅ Liveness probe succeeds periodically
+- ✅ Request latency drops to <100ms
+- ✅ Service routes requests successfully
+
+### Lessons Learned
+
+1. **Always match container ports with application listening ports.**
+2. **Health check endpoints must return correct HTTP status codes (2xx for success).**
+3. **Avoid artificial delays in production code; simulate load with separate tools.**
+4. **Define and tune both readiness and liveness probes for reliability.**
+5. **Monitor logs to correlate Kubernetes events with application behavior.**
+6. **Test probe configuration locally before deploying to production.**
+
